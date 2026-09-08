@@ -40,7 +40,7 @@ An AI-powered agent that:
 4. **Syncs with Jira**:
    - Creates/updates issues for detected problems
    - Links reviews to Jira tickets
-   - Tracks code quality metrics over time
+   - Tracks code quality trends over time
 
 ## Goals
 
