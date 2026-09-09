@@ -145,10 +145,18 @@ def system_status():
         llm_service = LLMService()
         ollama_status = llm_service.check_health()
         jira_status = jira_client.check_connection()
+        safe_ollama_status = {
+            'status': ollama_status.get('status', 'unknown')
+        }
+        if ollama_status.get('status') == 'healthy':
+            safe_ollama_status['available_models'] = ollama_status.get('available_models', [])
+        safe_jira_status = {
+            'status': jira_status.get('status', 'unknown')
+        }
         
         return jsonify({
-            'ollama': ollama_status,
-            'jira': jira_status,
+            'ollama': safe_ollama_status,
+            'jira': safe_jira_status,
             'database': 'connected'
         }), 200
     except Exception:
