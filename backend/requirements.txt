@@ -1,0 +1,13 @@
+Flask==2.3.3
+Flask-CORS==4.0.0
+python-dotenv==1.0.0
+requests==2.31.0
+SQLAlchemy==2.0.21
+PyYAML==6.0.1
+ast-monitor==0.1.0
+bandit==1.7.5
+flake8==6.1.0
+pylint==3.0.0a7
+radon==6.0.1
+black==23.10.1
+ollamapy==0.0.4
