@@ -3,11 +3,13 @@ from analysis.engine import AnalysisEngine
 from jira.client import JiraClient
 from db.database import db, AnalysisResult, JiraIssue
 import hashlib
+import logging
 
 api_bp = Blueprint('api', __name__)
 
 analysis_engine = AnalysisEngine()
 jira_client = JiraClient()
+logger = logging.getLogger(__name__)
 
 @api_bp.route('/health', methods=['GET'])
 def health():
@@ -62,8 +64,10 @@ def analyze_code():
         
         return jsonify(analysis_result.to_dict()), 200
     
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+<<<<<<< HEAD
+    except Exception:
+        logger.exception("Failed to analyze code")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @api_bp.route('/issues', methods=['GET'])
 def get_issues():
@@ -71,8 +75,9 @@ def get_issues():
     try:
         issues = JiraIssue.query.all()
         return jsonify([issue.to_dict() for issue in issues]), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception("Failed to fetch issues")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @api_bp.route('/jira-sync', methods=['POST'])
 def sync_to_jira():
@@ -129,8 +134,9 @@ def sync_to_jira():
             'count': len(synced_issues)
         }), 200
     
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception("Failed to sync issues to Jira")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @api_bp.route('/status', methods=['GET'])
 def system_status():
@@ -140,11 +146,20 @@ def system_status():
         llm_service = LLMService()
         ollama_status = llm_service.check_health()
         jira_status = jira_client.check_connection()
+        safe_ollama_status = {
+            'status': ollama_status.get('status', 'unknown')
+        }
+        if ollama_status.get('status') == 'healthy':
+            safe_ollama_status['available_models'] = ollama_status.get('available_models', [])
+        safe_jira_status = {
+            'status': jira_status.get('status', 'unknown')
+        }
         
         return jsonify({
-            'ollama': ollama_status,
-            'jira': jira_status,
+            'ollama': safe_ollama_status,
+            'jira': safe_jira_status,
             'database': 'connected'
         }), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception("Failed to fetch system status")
+        return jsonify({'error': 'Internal server error'}), 500
