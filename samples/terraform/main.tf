@@ -4,7 +4,7 @@ provider "aws" {
 
 resource "aws_s3_bucket" "public_assets" {
   bucket = "ai-review-agent-public-assets"
-  acl    = "public-read"
+  acl = "private"
 }
 
 resource "aws_db_instance" "app" {
@@ -13,7 +13,7 @@ resource "aws_db_instance" "app" {
   engine                  = "postgres"
   instance_class          = "db.t3.micro"
   username                = "app_user"
-  password                = "hardcoded_db_password"
+  password = var.db_password
   skip_final_snapshot     = true
   backup_retention_period = 0
   storage_encrypted       = false
@@ -30,7 +30,7 @@ resource "kubernetes_deployment" "api" {
   }
 
   spec {
-    replicas = 1
+    replicas = 2
 
     selector {
       match_labels = {

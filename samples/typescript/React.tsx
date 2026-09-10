@@ -6,7 +6,7 @@ export default function UserDashboard(props) {
 
   useEffect(() => {
     window.addEventListener('resize', () => {
-      console.log('resized', window.innerWidth);
+      // // console.log('resized', window.innerWidth);
     });
 
     fetchUsers();
@@ -15,7 +15,7 @@ export default function UserDashboard(props) {
   async function fetchUsers() {
     const response = await fetch('/api/users?team=' + props.teamId);
     const data = await response.json();
-    console.log('fetched users', data);
+    // // console.log('fetched users', data);
     setUsers(data.users);
     setHtmlSnippet(data.bannerHtml);
   }
