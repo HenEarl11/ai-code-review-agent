@@ -64,16 +64,41 @@ def main():
         print("No issues to apply")
         return 0
 
-    branch = f"ai-suggestions/{git(['rev-parse','--short','HEAD'])}"
-    git(["checkout", "-b", branch])
+    # ensure git user identity is set (use repository-local config if not global)
+    try:
+        git(["config", "user.email"])
+    except subprocess.CalledProcessError:
+        subprocess.check_call(["git", "config", "user.email", "ai-bot@example.com"], cwd=ROOT)
+        subprocess.check_call(["git", "config", "user.name", "AI Suggestion Bot"], cwd=ROOT)
 
-    changed_files = set()
+    branch = f"ai-suggestions/{git(['rev-parse','--short','HEAD'])}"
+    # if branch exists locally, checkout it; otherwise create it
+    existing = git(["branch", "--list", branch])
+    if existing:
+        git(["checkout", branch])
+    else:
+        git(["checkout", "-b", branch])
+
+    changed_files = []
     for issue in issues_flat:
         if apply_fix_for_issue(issue):
-            changed_files.add(issue["file"])
+            if issue["file"] not in changed_files:
+                changed_files.append(issue["file"])
+
+    # remove embedded/cloned repos from index if they exist to avoid submodule warnings
+    for embedded in [".scan_tmp", "test_repos"]:
+        emb_path = ROOT / embedded
+        if emb_path.exists():
+            try:
+                git(["rm", "--cached", "-r", embedded])
+            except subprocess.CalledProcessError:
+                # ignore if not in index
+                pass
 
     if changed_files:
-        git(["add", "."])
+        # add only the changed files
+        for f in changed_files:
+            git(["add", f])
         git(["commit", "-m", f"Apply AI suggestions: {', '.join(sorted(changed_files))}"])
         print(f"Created branch {branch} with changes to: {', '.join(sorted(changed_files))}")
     else:

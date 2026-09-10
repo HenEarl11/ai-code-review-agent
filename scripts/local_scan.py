@@ -122,7 +122,13 @@ def main():
     files = list(root.rglob("*.*"))
     results = []
     for f in files:
-        if "/.git/" in str(f) or "scan_results" in str(f) or "node_modules" in str(f):
+        s = str(f)
+        # skip git internals, scan artifacts, virtualenvs, cloned test repos and heavy dirs
+        if "/.git/" in s or "scan_results" in s or "node_modules" in s:
+            continue
+        if ".scan_tmp" in s or s.startswith(str(ROOT / "venv")) or "/venv/" in s or ".venv" in s or "/.venv/" in s:
+            continue
+        if "test_repos" in s or "__pycache__" in s:
             continue
         r = scan_file(f)
         if r:

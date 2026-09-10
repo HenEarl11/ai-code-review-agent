@@ -4,26 +4,6 @@
     "issues": [
       {
         "file": "samples/terraform/main.tf",
-        "line": 7,
-        "message": "Detected pattern: acl    = \"public-read\"",
-        "severity": "low",
-        "subtype": "public-s3-bucket",
-        "suggestion": "Make S3 bucket private or restrict access",
-        "type": "standard",
-        "id": "public-s3-bucket"
-      },
-      {
-        "file": "samples/terraform/main.tf",
-        "line": 16,
-        "message": "Detected pattern: password                = \"hardcoded_db_password\"",
-        "severity": "high",
-        "subtype": "hardcoded-db-password",
-        "suggestion": "Replace hardcoded password with var/db secret",
-        "type": "security",
-        "id": "hardcoded-db-password"
-      },
-      {
-        "file": "samples/terraform/main.tf",
         "line": 19,
         "message": "Detected pattern: storage_encrypted       = false",
         "severity": "low",
@@ -41,26 +21,16 @@
         "suggestion": "Set a non-zero backup_retention_period",
         "type": "standard",
         "id": "missing-backup-policy"
-      },
-      {
-        "file": "samples/terraform/main.tf",
-        "line": 33,
-        "message": "Detected pattern: replicas = 1",
-        "severity": "low",
-        "subtype": "single-replica-production",
-        "suggestion": "Increase replicas for production",
-        "type": "standard",
-        "id": "single-replica-production"
       }
     ],
     "language": "terraform",
     "summary": {
       "by_severity": {},
       "by_type": {},
-      "total_issues": 5
+      "total_issues": 2
     }
   },
-  "created_at": "2026-09-10T14:37:15.414501",
+  "created_at": "2026-09-10T14:45:44.076250",
   "file_path": "samples/terraform/main.tf",
   "language": "terraform"
 }
