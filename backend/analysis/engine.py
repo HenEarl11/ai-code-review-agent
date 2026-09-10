@@ -26,7 +26,7 @@ class AnalysisEngine:
         
         self.llm_service = LLMService()
     
-    def analyze(self, code, file_path, language='python'):
+    def analyze(self, code, file_path, language='python', codebase_style: str = None):
         """
         Analyze code and return detected issues
         
@@ -63,8 +63,8 @@ class AnalysisEngine:
                 issues = detector.detect(code, parsed_data, file_path)
                 all_issues.extend(issues)
             
-            # Get LLM-based analysis
-            llm_issues = self.llm_service.analyze(code, file_path, parsed_data)
+            # Get LLM-based analysis (pass codebase style so prompts/templates can adapt)
+            llm_issues = self.llm_service.analyze(code, file_path, parsed_data, codebase_style=codebase_style)
             all_issues.extend(llm_issues)
             
             # Deduplicate and aggregate

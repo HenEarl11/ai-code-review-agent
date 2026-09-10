@@ -8,112 +8,77 @@ Python, Terraform, and TypeScript configurations for the code review analysis en
 **File:** `python.py`
 
 **Best for:**
-- Django, FastAPI, Flask applications
-- Python libraries and packages
-- Data science projects (pandas, numpy, scikit-learn)
-- Microservices in Python
 
 **Key Features:**
-- Uses CodeLLaMA model (specialized for code)
-- Detects Django ORM N+1 queries
-- Enforces PEP 8 standards
-- Type hint checking
-- Framework-specific checks (Django, FastAPI, Flask)
-- Test coverage validation
 
 **Detects:**
-- Hardcoded credentials and secrets
-- SQL injection vulnerabilities
-- N+1 database query patterns (Django ORM)
-- Missing type hints and docstrings
-- Bare except clauses
-- Unsafe deserialization (pickle, yaml.load)
-- Performance issues (nested loops, string concatenation)
 
 **Example Usage:**
 ```bash
 CODEBASE_STYLE=python ./setup.sh start
 ```
 
----
 
 ### 2. Terraform Configuration
 **File:** `terraform.py`
 
 **Best for:**
-- Infrastructure as Code (Terraform, CloudFormation)
-- Kubernetes manifests (YAML)
-- Docker Compose files
-- Helm charts
-- CI/CD pipelines (GitHub Actions, GitLab CI)
-- Docker containers
 
 **Key Features:**
-- Cloud provider detection (AWS, GCP, Azure)
-- Kubernetes best practices enforcement
-- Resource limit and HA validation
-- Security policy checks
-- Cost optimization suggestions
-- Terraform specific checks (hardcoded values, lifecycle rules)
 
 **Detects:**
-- Hardcoded secrets in IaC
-- Public S3/Storage buckets
-- Unencrypted databases
-- Single replica in production (no HA)
-- Missing resource limits in K8s
-- Missing network policies
-- Overly permissive IAM roles
-- No backup policies
-- Latest container image tags (should use specific versions)
-- Containers running as root
+
+````markdown
+# Configuration Templates for AI Code Review Agent
+
+Python, Terraform, and TypeScript configurations for the code review analysis engine.
+
+## Available Configurations
+
+### 1. Python Configuration
+**File:** `python.py`
+
+**Best for:**
+
+**Key Features:**
+
+**Detects:**
+
+**Example Usage:**
+```bash
+CODEBASE_STYLE=python ./setup.sh start
+```
+
+
+### 2. Terraform Configuration
+**File:** `terraform.py`
+
+**Best for:**
+
+**Key Features:**
+
+**Detects:**
 
 **Example Usage:**
 ```bash
 CODEBASE_STYLE=terraform ./setup.sh start
 ```
 
----
 
 ### 3. TypeScript Configuration
 **File:** `typescript.py`
 
 **Best for:**
-- React, Next.js, Vue.js applications
-- Node.js/Express backends
-- NestJS microservices
-- Full-stack TypeScript applications
-- Electron desktop apps
-- React Native mobile apps
 
 **Key Features:**
-- Uses CodeLLaMA model
-- React hooks validation
-- Type safety enforcement (no 'any' types)
-- Async/await and Promise handling
-- Framework detection (React, Next.js, Express, NestJS)
-- ESLint rule enforcement
-- Test coverage validation
 
 **Detects:**
-- Missing TypeScript type annotations
-- Usage of 'any' type
-- Unhandled promise rejections
-- React hooks dependency issues
-- Missing key props in lists
-- XSS vulnerabilities (dangerouslySetInnerHTML)
-- SQL injection in database queries
-- Missing error boundaries
-- Console.log in production code
-- Unused imports
-- Performance issues (N+1 queries, unnecessary re-renders)
 
 **Example Usage:**
 ```bash
 CODEBASE_STYLE=typescript ./setup.sh start
 ```
 
----
 
 ## Configuration Structure
 
@@ -164,7 +129,6 @@ SEVERITY_OVERRIDES = {          # Adjust issue severity
 LLM_SYSTEM_PROMPT = """...""" # Custom LLM instructions
 ```
 
----
 
 ## Auto-Detection
 
@@ -184,7 +148,6 @@ os.environ['CODEBASE_STYLE'] = 'terraform'
 config = ConfigManager.get_config()
 ```
 
----
 
 ## Usage in Backend
 
@@ -225,7 +188,6 @@ class AnalysisEngine:
             # ... more detectors
 ```
 
----
 
 ## Adding Custom Configuration
 
@@ -265,7 +227,6 @@ ConfigManager.register_config('golang', GolangCodebaseConfig)
 CODEBASE_STYLE=golang ./setup.sh start
 ```
 
----
 
 ## Environment Variables
 
@@ -283,7 +244,6 @@ export CACHE_ENABLED=true
 ./setup.sh start
 ```
 
----
 
 ## Configuration Examples
 
@@ -311,7 +271,6 @@ ANALYSIS_TIMEOUT=20 \
 ./setup.sh start
 ```
 
----
 
 ## Testing Configurations
 
@@ -334,7 +293,6 @@ curl -X POST http://localhost:5000/api/analyze \
 curl http://localhost:5000/api/config
 ```
 
----
 
 ## Performance Considerations
 
@@ -346,7 +304,6 @@ Each configuration has different performance profiles:
 | Terraform | 1-2s | 128MB | Small IaC files |
 | TypeScript | 3-4s | 384MB | Complex React components |
 
----
 
 ## Extending Detectors
 
@@ -371,7 +328,6 @@ class DjangoORMOptimizationDetector:
         pass
 ```
 
----
 
 ## Next Steps
 
@@ -381,6 +337,18 @@ class DjangoORMOptimizationDetector:
 4. Create integration tests
 5. Document custom detectors
 
----
 
 For more information, see individual configuration files.
+
+
+## Docker and Ollama notes
+
+- When running the backend inside Docker, set the LLM host so the container can reach Ollama running on the host. On macOS use:
+
+```bash
+export OLLAMA_HOST="http://host.docker.internal:11434"
+```
+
+- If you're running Ollama directly on the host (not in Docker), set the `OLLAMA_HOST` or `AICR_OLLAMA_URL` environment variable to `http://localhost:11434` before starting the backend so LLM-based detectors can access the model.
+
+- The Docker image uses a trimmed dependency list to avoid building GUI/QT packages during image builds; for full development installs continue to use the repo `requirements.txt` in a local venv.
