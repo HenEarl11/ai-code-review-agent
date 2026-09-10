@@ -19,3 +19,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+
+# Local scan and test repo artifacts
+.scan_tmp/
+test_repos/
