@@ -1,0 +1,84 @@
+# Rolling out AI PR Review to a repository
+
+The reviewer lives in **this** repo and is fetched at run-time by each consumer repo,
+so there is exactly one copy to maintain. Adding a repo is a single-file change.
+
+## What each consumer repo gets
+
+On every `pull_request` (opened / synchronize / reopened):
+
+1. Checks out the PR head on an `ubuntu-latest` runner.
+2. Installs Ollama, restores the cached `mistral` model, starts `ollama serve`.
+3. Downloads `scripts/pr_review_action.py` from this repo (`main`).
+4. For each changed `.tf` / `.py` / `.ts` / `.tsx` / `.js` / `.jsx` file:
+   - fast regex rules (deterministic, with one-line fixes), then
+   - an Ollama review of the whole file, merged in.
+5. Posts **one** PR review with inline comments; safe fixes appear as
+   ` ```suggestion ``` ` blocks with an **Apply suggestion** button.
+
+Suggestions only — nothing is committed or pushed. Uses the built-in `GITHUB_TOKEN`;
+no PATs or secrets required.
+
+## Add it to a repo (Terraform, Python or TypeScript — same steps)
+
+```bash
+cd /path/to/target-repo
+mkdir -p .github/workflows
+curl -fsSL https://raw.githubusercontent.com/HenEarl11/ai-code-review-agent/main/templates/github-workflows/ai-review.yml \
+  -o .github/workflows/ai-review.yml
+git add .github/workflows/ai-review.yml
+git commit -m "Add AI PR review"
+git push
+```
+
+Then confirm in the repo: **Settings → Actions → General → Workflow permissions** is
+*Read and write* (or that `pull-requests: write` in the workflow is honoured — it is by default).
+
+Open any PR that touches a supported file type and watch the **AI Code Review** check.
+First run downloads the 4.4 GB model (~10 min); later runs use the cache.
+
+## Repos currently using it
+
+| Repo | Language | Since |
+|---|---|---|
+| [HenEarl11/terraform](https://github.com/HenEarl11/terraform) | Terraform | 2026-09-11 — see [PR #1](https://github.com/HenEarl11/terraform/pull/1) |
+| _python repo_ | Python | pending |
+| _typescript repo_ | TypeScript | pending |
+
+## Per-repo knobs (edit `env:` in the workflow)
+
+| Variable | Default | Effect |
+|---|---|---|
+| `OLLAMA_MODEL` | `mistral` | `qwen2.5-coder:3b` is ~3× faster with shallower, fewer findings |
+| `AICR_FAIL_ON_HIGH` | `"false"` | `"true"` fails the check on any high-severity finding — pair with a required status check to block merges |
+| `AICR_USE_OLLAMA` | `"true"` | `"false"` = regex rules only (seconds, no model download) |
+| `AICR_OLLAMA_URL` | `http://localhost:11434` | Point at a self-hosted GPU runner's Ollama and drop the install/pull steps for sub-minute reviews |
+
+## Extending the rules
+
+Regex rules are in `DETECTORS` in `scripts/pr_review_action.py`, keyed by language.
+Each is one tuple: `(id, regex, severity, message, fixer_or_None)`. Push to `main` and
+every consumer repo picks it up on its next PR — no changes needed in the consumer repos.
+
+## Testing a change locally before pushing
+
+```bash
+ollama serve &
+python3 - <<'EOF'
+import sys; sys.path.insert(0, 'scripts')
+from pathlib import Path
+import pr_review_action as r
+for p in [Path('samples/terraform/demo/rds.tf'), Path('samples/python/vulnerable_api.py'), Path('samples/typescript/api.ts')]:
+    for x in r.scan(p, r.EXT_TO_LANG[p.suffix], use_llm=True):
+        print(f"{p.name}:{x['line']} {x['severity']} [{x['source']}] {x['id']} — {x['message'][:80]}")
+EOF
+```
+
+## What in this repo is live vs. legacy
+
+| Path | Status |
+|---|---|
+| `scripts/pr_review_action.py` | **Live** — fetched by every consumer repo on every PR. Do not rename/move without updating consumers. |
+| `templates/github-workflows/ai-review.yml` | **Live** — the workflow consumers copy. |
+| `samples/` | Demo/test fixtures for the reviewer. |
+| `backend/`, `vscode-extension/`, Docker files, `scripts/local_*`, `scripts/apply_*`, `scripts/pr_review.py`, `scripts/create_pr_with_docker.sh`, `tests/` | Legacy — earlier Flask-backend and auto-fix iterations. Not used by the PR review workflow. Safe to archive. |
