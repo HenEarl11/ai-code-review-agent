@@ -30,7 +30,7 @@ resource "kubernetes_deployment" "api" {
   }
 
   spec {
-    replicas = 2
+  replicas = 2
 
     selector {
       match_labels = {

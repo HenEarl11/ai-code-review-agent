@@ -7,7 +7,6 @@ from myapp.models import User, Order
 API_KEY = "sk_live_hardcoded_key"
 DB_PASSWORD = "super-secret-prod-password"
 
-
 def get_user_orders(request):
     user_id = request.GET.get("user_id")
 

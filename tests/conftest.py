@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-
 class MockAnalysisEngine:
     def __init__(self):
         self._cache = {}
@@ -49,7 +48,6 @@ class MockAnalysisEngine:
         self._cache[cache_key] = result
         return result
 
-
 class MockJiraClient:
     def sync_issues(self, issues, project_key="AICR"):
         return {
@@ -57,7 +55,6 @@ class MockJiraClient:
             "created": len(issues),
             "issue_keys": [f"{project_key}-{index + 1}" for index, _ in enumerate(issues)],
         }
-
 
 class MockOllamaClient:
     def review(self, code: str, model: str = "mistral"):
@@ -67,26 +64,21 @@ class MockOllamaClient:
             "issue_count": max(1, code.count("\n") // 5),
         }
 
-
 @pytest.fixture
 def repo_root():
     return Path(__file__).resolve().parent.parent
-
 
 @pytest.fixture
 def analyzer():
     return MockAnalysisEngine()
 
-
 @pytest.fixture
 def jira_client():
     return MockJiraClient()
 
-
 @pytest.fixture
 def ollama_client():
     return MockOllamaClient()
-
 
 @pytest.fixture
 def load_config(monkeypatch):

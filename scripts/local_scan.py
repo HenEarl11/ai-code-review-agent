@@ -5,12 +5,16 @@ This avoids requiring the backend to be running; it's for local-only demos.
 """
 import json
 import os
+import sys
 from pathlib import Path
 from datetime import datetime
 
 ROOT = Path(__file__).resolve().parent.parent
 SCAN_DIR = ROOT / "scan_results"
 SCAN_DIR.mkdir(exist_ok=True)
+
+# paths to ignore when scanning
+DEFAULT_IGNORES = ["/.git/", "scan_results", "node_modules", "venv/", ".scan_tmp", "test_repos"]
 
 CHECKS = {
     "python": [
@@ -36,7 +40,6 @@ CHECKS = {
     ],
 }
 
-
 def detect_language(path: Path):
     suffix = path.suffix.lower()
     if suffix in (".py",):
@@ -46,7 +49,6 @@ def detect_language(path: Path):
     if suffix in (".ts", ".tsx", ".js", ".jsx"):
         return "typescript"
     return None
-
 
 def scan_file(path: Path):
     try:
@@ -95,7 +97,6 @@ def scan_file(path: Path):
     }
     return result
 
-
 def suggestion_for_issue(issue_id: str) -> str:
     mapping = {
         "hardcoded-credentials": "Review and remove hardcoded credentials",
@@ -116,13 +117,21 @@ def suggestion_for_issue(issue_id: str) -> str:
     }
     return mapping.get(issue_id, "Inspect and apply suggested fix")
 
-
-def main():
+def main(target_files=None):
     root = ROOT
-    files = list(root.rglob("*.*"))
     results = []
+
+    if target_files:
+        files = [root / f for f in target_files]
+    else:
+        files = list(root.rglob("*.*"))
+
     for f in files:
-        if "/.git/" in str(f) or "scan_results" in str(f) or "node_modules" in str(f):
+        sf = str(f)
+        # skip common noisy folders
+        if any(ignore in sf for ignore in DEFAULT_IGNORES):
+            continue
+        if not f.exists():
             continue
         r = scan_file(f)
         if r:
@@ -137,6 +146,13 @@ def main():
     (SCAN_DIR / "all_results.json").write_text(json.dumps(all_results, indent=2))
     print(f"Wrote {len(results)} report(s) to {SCAN_DIR}")
 
+if __name__ == "__main__":
+    # optional file paths passed as args
+    args = sys.argv[1:]
+    if args:
+        main(args)
+    else:
+        main()
 
 if __name__ == "__main__":
     main()
