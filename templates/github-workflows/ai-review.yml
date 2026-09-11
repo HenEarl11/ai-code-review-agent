@@ -1,0 +1,39 @@
+# Copy this file to  .github/workflows/ai-review.yml  in the target repo
+# (e.g. HenEarl11/terraform). No secrets required — uses the built-in GITHUB_TOKEN.
+
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Fetch AI reviewer script
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/HenEarl11/ai-code-review-agent/main/scripts/pr_review_action.py \
+            -o /tmp/pr_review_action.py
+
+      - name: Run AI review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # Set to "true" to fail the check when high-severity issues are found
+          AICR_FAIL_ON_HIGH: "false"
+        run: python3 /tmp/pr_review_action.py ${{ github.event.pull_request.number }}
