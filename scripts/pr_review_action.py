@@ -32,7 +32,9 @@ OLLAMA_URL = os.environ.get("AICR_OLLAMA_URL", "http://localhost:11434").rstrip(
 OLLAMA_MODEL = os.environ.get("AICR_OLLAMA_MODEL", "mistral")
 OLLAMA_TIMEOUT = int(os.environ.get("AICR_OLLAMA_TIMEOUT", "120"))
 USE_OLLAMA = os.environ.get("AICR_USE_OLLAMA", "true").lower() != "false"
-MAX_LLM_CHARS = 6000  # truncate very large files to keep CPU inference fast
+MAX_LLM_CHARS = 6000   # per-chunk budget sent to Ollama (keeps CPU inference fast)
+LLM_CHUNK_OVERLAP = 8  # lines of context repeated between adjacent chunks
+MAX_LLM_CHUNKS = int(os.environ.get("AICR_MAX_LLM_CHUNKS", "6"))  # cap per file
 
 # ---------------------------------------------------------------------------
 # Detectors: (id, regex, severity, message, fixer | None)
@@ -179,8 +181,8 @@ def ollama_available():
         return False
 
 
-def _llm_prompt(path, lang, text):
-    numbered = "\n".join(f"{i}: {l}" for i, l in enumerate(text.splitlines(), 1))
+def _llm_prompt(path, lang, text, start_line=1):
+    numbered = "\n".join(f"{i}: {l}" for i, l in enumerate(text.splitlines(), start_line))
     return (
         f"You are a senior {lang} code reviewer performing a pull-request review.\n"
         "Find real problems: security vulnerabilities, misconfigurations, bugs, reliability and best-practice issues. "
@@ -220,8 +222,46 @@ def _safe_replacement(original, replacement):
     return True
 
 
+def _chunk_lines(lines):
+    """Yield (start_line, chunk_text) windows of at most MAX_LLM_CHARS each,
+    with LLM_CHUNK_OVERLAP lines of context shared between neighbours."""
+    n = len(lines)
+    i = 0
+    while i < n:
+        size = 0
+        j = i
+        while j < n and size + len(lines[j]) + 1 <= MAX_LLM_CHARS:
+            size += len(lines[j]) + 1
+            j += 1
+        if j == i:  # single pathological line longer than the budget
+            j = i + 1
+        yield i + 1, "\n".join(lines[i:j])
+        if j >= n:
+            break
+        i = max(j - LLM_CHUNK_OVERLAP, i + 1)
+
+
 def llm_scan(path: Path, lang: str, text: str):
-    prompt = _llm_prompt(path, lang, text[:MAX_LLM_CHARS])
+    lines = text.splitlines()
+    chunks = list(_chunk_lines(lines))
+    if len(chunks) > MAX_LLM_CHUNKS:
+        print(f"  [ollama] {path}: {len(chunks)} chunks, capping at {MAX_LLM_CHUNKS}", file=sys.stderr)
+        chunks = chunks[:MAX_LLM_CHUNKS]
+    if len(chunks) > 1:
+        print(f"  [ollama] {path}: {len(lines)} lines split into {len(chunks)} chunk(s)", file=sys.stderr)
+
+    findings, seen = [], set()
+    for start, chunk in chunks:
+        for f in _llm_scan_chunk(path, lang, chunk, start, lines):
+            key = (f["line"], f["id"])
+            if key not in seen:
+                seen.add(key)
+                findings.append(f)
+    return findings
+
+
+def _llm_scan_chunk(path: Path, lang: str, chunk: str, start_line: int, lines):
+    prompt = _llm_prompt(path, lang, chunk, start_line)
     payload = json.dumps({
         "model": OLLAMA_MODEL, "prompt": prompt, "stream": False,
         "format": "json", "options": {"temperature": 0.1},
@@ -253,7 +293,7 @@ def llm_scan(path: Path, lang: str, text: str):
         print(f"  [ollama] {path}: no usable findings (raw {len(raw)} chars): {raw[:200]!r}", file=sys.stderr)
         return []
 
-    lines = text.splitlines()
+    lo, hi = start_line, start_line + len(chunk.splitlines()) - 1
     findings = []
     for item in data if isinstance(data, list) else []:
         if not isinstance(item, dict):
@@ -262,7 +302,7 @@ def llm_scan(path: Path, lang: str, text: str):
             line = int(item.get("line", 0))
         except (TypeError, ValueError):
             continue
-        if not (1 <= line <= len(lines)):
+        if not (lo <= line <= hi):
             continue
         sev = str(item.get("severity", "medium")).lower()
         if sev not in ("high", "medium", "low"):
@@ -277,7 +317,7 @@ def llm_scan(path: Path, lang: str, text: str):
             "original": lines[line - 1], "replacement": replacement,
             "source": "ollama",
         })
-    print(f"  [ollama] {path}: {len(data)} raw item(s) -> {len(findings)} valid finding(s)", file=sys.stderr)
+    print(f"  [ollama] {path} L{lo}-{hi}: {len(data)} raw item(s) -> {len(findings)} valid finding(s)", file=sys.stderr)
     return findings
 
 

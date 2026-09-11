@@ -9,10 +9,11 @@ On every `pull_request` (opened / synchronize / reopened):
 
 1. Checks out the PR head on an `ubuntu-latest` runner.
 2. Installs Ollama, restores the cached `mistral` model, starts `ollama serve`.
-3. Downloads `scripts/pr_review_action.py` from this repo (`main`).
+3. Downloads `scripts/pr_review_action.py` from this repo at the pinned tag `AICR_VERSION`.
 4. For each changed `.tf` / `.py` / `.ts` / `.tsx` / `.js` / `.jsx` file:
    - fast regex rules (deterministic, with one-line fixes), then
-   - an Ollama review of the whole file, merged in.
+   - an Ollama review of the whole file (large files are split into ~6 KB
+     overlapping chunks so nothing is skipped), merged in.
 5. Posts **one** PR review with inline comments; safe fixes appear as
    ` ```suggestion ``` ` blocks with an **Apply suggestion** button.
 
@@ -49,16 +50,31 @@ First run downloads the 4.4 GB model (~10 min); later runs use the cache.
 
 | Variable | Default | Effect |
 |---|---|---|
+| `AICR_VERSION` | `v1.0.0` | Git tag of this repo to fetch the reviewer from. Bump to upgrade; set to `main` to always track latest |
 | `OLLAMA_MODEL` | `mistral` | `qwen2.5-coder:3b` is ~3× faster with shallower, fewer findings |
 | `AICR_FAIL_ON_HIGH` | `"false"` | `"true"` fails the check on any high-severity finding — pair with a required status check to block merges |
 | `AICR_USE_OLLAMA` | `"true"` | `"false"` = regex rules only (seconds, no model download) |
+| `AICR_MAX_LLM_CHUNKS` | `6` | Max ~6 KB chunks per file sent to Ollama (caps runtime on very large files) |
 | `AICR_OLLAMA_URL` | `http://localhost:11434` | Point at a self-hosted GPU runner's Ollama and drop the install/pull steps for sub-minute reviews |
+
+## Releasing a new version
+
+Consumer repos are pinned to a tag, so pushing to `main` does **not** change their
+behaviour. To ship a change:
+
+```bash
+git tag -a v1.1.0 -m "describe the change"
+git push origin v1.1.0
+```
+
+then bump `AICR_VERSION` in each consumer's `.github/workflows/ai-review.yml`.
+Roll back by pointing `AICR_VERSION` at the previous tag.
 
 ## Extending the rules
 
 Regex rules are in `DETECTORS` in `scripts/pr_review_action.py`, keyed by language.
-Each is one tuple: `(id, regex, severity, message, fixer_or_None)`. Push to `main` and
-every consumer repo picks it up on its next PR — no changes needed in the consumer repos.
+Each is one tuple: `(id, regex, severity, message, fixer_or_None)`. Tag a release
+(above) and bump `AICR_VERSION` in the consumers to pick it up.
 
 ## Testing a change locally before pushing
 
