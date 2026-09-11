@@ -1,14 +1,6 @@
 # Rolling out AI PR Review to a repository
 
-The reviewer lives in **this** repo and is fetch## What is in this repo
-
-| Path | Status |
-|---|---|
-| `scripts/pr_review_action.py` | **Live** — fetched by every consumer repo on every PR (at the tag in `AICR_VERSION`). Do not rename/move without a release. |
-| `templates/github-workflows/ai-review.yml` | **Live** — the workflow consumers copy. |
-| `.github/workflows/ai-review.yml` | Same workflow, so this repo reviews its own PRs. |
-| `samples/` | Intentionally vulnerable demo/test fixtures for the reviewer. |
-| `PANEL_BRIEF.md` | Plain-English explanation and Q&A for presenting the solution. |n-time by each consumer repo,
+The reviewer lives in **this** repo and is fetched at run-time by each consumer repo,
 so there is exactly one copy to maintain. Adding a repo is a single-file change.
 
 ## What each consumer repo gets
@@ -98,11 +90,12 @@ for p in [Path('samples/terraform/demo/rds.tf'), Path('samples/python/vulnerable
 EOF
 ```
 
-## What in this repo is live vs. legacy
+## What is in this repo
 
 | Path | Status |
 |---|---|
-| `scripts/pr_review_action.py` | **Live** — fetched by every consumer repo on every PR. Do not rename/move without updating consumers. |
+| `scripts/pr_review_action.py` | **Live** — fetched by every consumer repo on every PR (at the tag in `AICR_VERSION`). Do not rename/move without a release. |
 | `templates/github-workflows/ai-review.yml` | **Live** — the workflow consumers copy. |
-| `samples/` | Demo/test fixtures for the reviewer. |
-| `backend/`, `vscode-extension/`, Docker files, `scripts/local_*`, `scripts/apply_*`, `scripts/pr_review.py`, `scripts/create_pr_with_docker.sh`, `tests/` | Legacy — earlier Flask-backend and auto-fix iterations. Not used by the PR review workflow. Safe to archive. |
+| `.github/workflows/ai-review.yml` | Same workflow, so this repo reviews its own PRs. |
+| `samples/` | Intentionally vulnerable demo/test fixtures for the reviewer. |
+| `PANEL_BRIEF.md` | Plain-English explanation and Q&A for presenting the solution. |
