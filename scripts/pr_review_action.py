@@ -195,6 +195,21 @@ def _llm_prompt(path, lang, text):
     )
 
 
+_PROSE_START = re.compile(
+    r"^\s*(replace|add|modify|use|remove|consider|set|change|update|ensure|enable|disable|move|store)\b", re.I)
+
+
+def _looks_like_code(s):
+    """Reject LLM 'replacements' that are prose instead of a single code line."""
+    if not isinstance(s, str) or not s.strip() or "\n" in s:
+        return False
+    t = s.strip()
+    if "`" in t or t.endswith(".") or _PROSE_START.match(t):
+        return False
+    # Code lines almost always contain one of these; prose rarely does.
+    return any(ch in t for ch in "={}[]()\":")
+
+
 def llm_scan(path: Path, lang: str, text: str):
     prompt = _llm_prompt(path, lang, text[:MAX_LLM_CHARS])
     payload = json.dumps({
@@ -237,7 +252,7 @@ def llm_scan(path: Path, lang: str, text: str):
         if sev not in ("high", "medium", "low"):
             sev = "medium"
         replacement = item.get("replacement")
-        if not isinstance(replacement, str) or not replacement.strip() or "\n" in replacement:
+        if not _looks_like_code(replacement):
             replacement = None
         findings.append({
             "id": re.sub(r"[^a-z0-9-]", "-", str(item.get("id", "llm-finding")).lower())[:40],
