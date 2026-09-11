@@ -51,6 +51,35 @@ Then confirm in the repo: **Settings → Actions → General → Workflow permis
 Open any PR that touches a supported file type and watch the **AI Code Review** check.
 First run downloads the 4.4 GB model (~10 min); later runs use the cache.
 
+### Branch protection on `main`
+
+All repos (this one and every consumer) have the same protection on `main`:
+
+| Setting | Value |
+|---|---|
+| Direct pushes | ❌ — changes must come via a pull request |
+| Required status check | `review` (the AI Code Review job) must pass; branch must be up to date |
+| Conversation resolution | Every review comment must be resolved before merge — including the AI's |
+| Force-push / delete | ❌ |
+| Applies to admins | ✅ |
+
+Approvals required: 0 (so a solo maintainer can merge). Raise to 1+ for team repos.
+
+Because conversation resolution is required, ignoring an AI finding is an explicit
+act: the author clicks **Resolve conversation**, which is recorded on the PR.
+
+Apply/replicate with:
+
+```bash
+gh api -X PUT repos/HenEarl11/<repo>/branches/main/protection --input - <<'JSON'
+{"required_status_checks":{"strict":true,"contexts":["review"]},
+ "enforce_admins":true,
+ "required_pull_request_reviews":{"required_approving_review_count":0,"dismiss_stale_reviews":true},
+ "restrictions":null,"allow_force_pushes":false,"allow_deletions":false,
+ "required_conversation_resolution":true}
+JSON
+```
+
 ## Repos currently using it
 
 | Repo | Language | Since |
@@ -73,12 +102,17 @@ First run downloads the 4.4 GB model (~10 min); later runs use the cache.
 
 ## Releasing a new version
 
-Consumer repos are pinned to a tag, so pushing to `main` does **not** change their
+Consumer repos are pinned to a tag, so merging to `main` does **not** change their
 behaviour. To ship a change:
 
 ```bash
-git tag -a v1.1.0 -m "describe the change"
-git push origin v1.1.0
+git checkout -b feat/my-change
+# ...edit, commit...
+gh pr create --fill          # main is protected — the AI review runs on this PR too
+gh pr merge --squash --delete-branch
+git checkout main && git pull
+git tag -a v1.2.0 -m "describe the change"
+git push origin v1.2.0
 ```
 
 then bump `AICR_VERSION` in each consumer's `.github/workflows/ai-review.yml`.
