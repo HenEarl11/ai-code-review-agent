@@ -42,8 +42,8 @@ First run downloads the 4.4 GB model (~10 min); later runs use the cache.
 | Repo | Language | Since |
 |---|---|---|
 | [HenEarl11/terraform](https://github.com/HenEarl11/terraform) | Terraform | 2026-09-11 — see [PR #1](https://github.com/HenEarl11/terraform/pull/1) |
-| _python repo_ | Python | pending |
-| _typescript repo_ | TypeScript | pending |
+| [HenEarl11/python](https://github.com/HenEarl11/python) | Python | 2026-09-11 — see [PR #1](https://github.com/HenEarl11/python/pull/1) |
+| [HenEarl11/typescript](https://github.com/HenEarl11/typescript) | TypeScript | 2026-09-11 — see [PR #1](https://github.com/HenEarl11/typescript/pull/1) |
 
 ## Per-repo knobs (edit `env:` in the workflow)
 
