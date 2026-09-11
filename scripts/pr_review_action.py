@@ -14,7 +14,7 @@ Usage (in Actions):
 Required env: GITHUB_TOKEN (or GH_TOKEN), GITHUB_REPOSITORY (owner/repo).
 Optional env:
     AICR_OLLAMA_URL      Ollama base URL (default http://localhost:11434)
-    AICR_OLLAMA_MODEL    model name (default qwen2.5-coder:1.5b)
+    AICR_OLLAMA_MODEL    model name (default mistral)
     AICR_OLLAMA_TIMEOUT  seconds per file (default 120)
     AICR_USE_OLLAMA      "false" to disable the LLM pass (regex only)
     AICR_FAIL_ON_HIGH    "true" -> exit 1 if any high-severity finding
@@ -29,7 +29,7 @@ import urllib.request
 from pathlib import Path
 
 OLLAMA_URL = os.environ.get("AICR_OLLAMA_URL", "http://localhost:11434").rstrip("/")
-OLLAMA_MODEL = os.environ.get("AICR_OLLAMA_MODEL", "qwen2.5-coder:1.5b")
+OLLAMA_MODEL = os.environ.get("AICR_OLLAMA_MODEL", "mistral")
 OLLAMA_TIMEOUT = int(os.environ.get("AICR_OLLAMA_TIMEOUT", "120"))
 USE_OLLAMA = os.environ.get("AICR_USE_OLLAMA", "true").lower() != "false"
 MAX_LLM_CHARS = 6000  # truncate very large files to keep CPU inference fast
@@ -185,18 +185,21 @@ def _llm_prompt(path, lang, text):
         f"You are a senior {lang} code reviewer performing a pull-request review.\n"
         "Find real problems: security vulnerabilities, misconfigurations, bugs, reliability and best-practice issues. "
         "Ignore style nits. Be precise and avoid false positives.\n\n"
-        "Return ONLY a JSON array (no prose, no markdown). Each object must have:\n"
+        "Return ONLY a JSON object of the form {\"findings\": [ ... ]} (no prose, no markdown). "
+        "Report EVERY distinct problem you find as a separate item. Each item must have:\n"
         '  "line": <int, from the numbered listing>,\n'
         '  "severity": "high" | "medium" | "low",\n'
         '  "id": <short-kebab-case-rule-name>,\n'
         '  "message": <one or two sentences explaining the problem and how to fix it>,\n'
         '  "replacement": <the corrected version of ONLY that single line, preserving indentation, or null if a one-line fix is not possible>\n\n'
-        f"File: {path}\n<CODE>\n{numbered}\n</CODE>\n\nJSON array:"
+        f"File: {path}\n<CODE>\n{numbered}\n</CODE>\n\nJSON object:"
     )
 
 
 _PROSE_START = re.compile(
     r"^\s*(replace|add|modify|use|remove|consider|set|change|update|ensure|enable|disable|move|store)\b", re.I)
+_SECRET_KEY = re.compile(r"\b(password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)\b", re.I)
+_QUOTED_LITERAL = re.compile(r'=\s*"[^"$]{4,}"')
 
 
 def _looks_like_code(s):
@@ -208,6 +211,13 @@ def _looks_like_code(s):
         return False
     # Code lines almost always contain one of these; prose rarely does.
     return any(ch in t for ch in "={}[]()\":")
+
+
+def _safe_replacement(original, replacement):
+    """Never suggest swapping one hardcoded secret literal for another."""
+    if _SECRET_KEY.search(original) and _QUOTED_LITERAL.search(replacement):
+        return False
+    return True
 
 
 def llm_scan(path: Path, lang: str, text: str):
@@ -225,17 +235,23 @@ def llm_scan(path: Path, lang: str, text: str):
         print(f"  [ollama] {path}: request failed: {e}", file=sys.stderr)
         return []
 
-    # Ollama's format=json may wrap the array in an object; find the array either way.
+    # Models return either a bare array, an object wrapping an array
+    # ({"findings": [...]}) or — common with format=json — a single finding object.
     try:
         data = json.loads(raw)
-        if isinstance(data, dict):
-            data = next((v for v in data.values() if isinstance(v, list)), [])
     except json.JSONDecodeError:
         s, e = raw.find("["), raw.rfind("]") + 1
         try:
             data = json.loads(raw[s:e]) if s >= 0 and e > s else []
         except json.JSONDecodeError:
             data = []
+    if isinstance(data, dict):
+        inner = next((v for v in data.values() if isinstance(v, list)), None)
+        data = inner if inner is not None else ([data] if "line" in data else [])
+
+    if not isinstance(data, list) or not data:
+        print(f"  [ollama] {path}: no usable findings (raw {len(raw)} chars): {raw[:200]!r}", file=sys.stderr)
+        return []
 
     lines = text.splitlines()
     findings = []
@@ -252,7 +268,7 @@ def llm_scan(path: Path, lang: str, text: str):
         if sev not in ("high", "medium", "low"):
             sev = "medium"
         replacement = item.get("replacement")
-        if not _looks_like_code(replacement):
+        if not _looks_like_code(replacement) or not _safe_replacement(lines[line - 1], replacement):
             replacement = None
         findings.append({
             "id": re.sub(r"[^a-z0-9-]", "-", str(item.get("id", "llm-finding")).lower())[:40],
@@ -261,6 +277,7 @@ def llm_scan(path: Path, lang: str, text: str):
             "original": lines[line - 1], "replacement": replacement,
             "source": "ollama",
         })
+    print(f"  [ollama] {path}: {len(data)} raw item(s) -> {len(findings)} valid finding(s)", file=sys.stderr)
     return findings
 
 
