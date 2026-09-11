@@ -12,14 +12,27 @@ Usage (in Actions):
     python3 pr_review_action.py <pr-number>
 
 Required env: GITHUB_TOKEN (or GH_TOKEN), GITHUB_REPOSITORY (owner/repo).
-Optional env: AICR_FAIL_ON_HIGH=true  -> exit 1 if any high-severity finding.
+Optional env:
+    AICR_OLLAMA_URL      Ollama base URL (default http://localhost:11434)
+    AICR_OLLAMA_MODEL    model name (default qwen2.5-coder:1.5b)
+    AICR_OLLAMA_TIMEOUT  seconds per file (default 120)
+    AICR_USE_OLLAMA      "false" to disable the LLM pass (regex only)
+    AICR_FAIL_ON_HIGH    "true" -> exit 1 if any high-severity finding
 """
 import json
 import os
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
+
+OLLAMA_URL = os.environ.get("AICR_OLLAMA_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_MODEL = os.environ.get("AICR_OLLAMA_MODEL", "qwen2.5-coder:1.5b")
+OLLAMA_TIMEOUT = int(os.environ.get("AICR_OLLAMA_TIMEOUT", "120"))
+USE_OLLAMA = os.environ.get("AICR_USE_OLLAMA", "true").lower() != "false"
+MAX_LLM_CHARS = 6000  # truncate very large files to keep CPU inference fast
 
 # ---------------------------------------------------------------------------
 # Detectors: (id, regex, severity, message, fixer | None)
@@ -153,10 +166,94 @@ def added_or_context_lines(patch):
 
 
 # ---------------------------------------------------------------------------
+# Ollama (LLM) pass
+# ---------------------------------------------------------------------------
+
+def ollama_available():
+    if not USE_OLLAMA:
+        return False
+    try:
+        with urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=5) as r:
+            return r.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def _llm_prompt(path, lang, text):
+    numbered = "\n".join(f"{i}: {l}" for i, l in enumerate(text.splitlines(), 1))
+    return (
+        f"You are a senior {lang} code reviewer performing a pull-request review.\n"
+        "Find real problems: security vulnerabilities, misconfigurations, bugs, reliability and best-practice issues. "
+        "Ignore style nits. Be precise and avoid false positives.\n\n"
+        "Return ONLY a JSON array (no prose, no markdown). Each object must have:\n"
+        '  "line": <int, from the numbered listing>,\n'
+        '  "severity": "high" | "medium" | "low",\n'
+        '  "id": <short-kebab-case-rule-name>,\n'
+        '  "message": <one or two sentences explaining the problem and how to fix it>,\n'
+        '  "replacement": <the corrected version of ONLY that single line, preserving indentation, or null if a one-line fix is not possible>\n\n'
+        f"File: {path}\n<CODE>\n{numbered}\n</CODE>\n\nJSON array:"
+    )
+
+
+def llm_scan(path: Path, lang: str, text: str):
+    prompt = _llm_prompt(path, lang, text[:MAX_LLM_CHARS])
+    payload = json.dumps({
+        "model": OLLAMA_MODEL, "prompt": prompt, "stream": False,
+        "format": "json", "options": {"temperature": 0.1},
+    }).encode()
+    req = urllib.request.Request(f"{OLLAMA_URL}/api/generate", data=payload,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT) as r:
+            raw = json.loads(r.read()).get("response", "")
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+        print(f"  [ollama] {path}: request failed: {e}", file=sys.stderr)
+        return []
+
+    # Ollama's format=json may wrap the array in an object; find the array either way.
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            data = next((v for v in data.values() if isinstance(v, list)), [])
+    except json.JSONDecodeError:
+        s, e = raw.find("["), raw.rfind("]") + 1
+        try:
+            data = json.loads(raw[s:e]) if s >= 0 and e > s else []
+        except json.JSONDecodeError:
+            data = []
+
+    lines = text.splitlines()
+    findings = []
+    for item in data if isinstance(data, list) else []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            line = int(item.get("line", 0))
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= line <= len(lines)):
+            continue
+        sev = str(item.get("severity", "medium")).lower()
+        if sev not in ("high", "medium", "low"):
+            sev = "medium"
+        replacement = item.get("replacement")
+        if not isinstance(replacement, str) or not replacement.strip() or "\n" in replacement:
+            replacement = None
+        findings.append({
+            "id": re.sub(r"[^a-z0-9-]", "-", str(item.get("id", "llm-finding")).lower())[:40],
+            "line": line, "severity": sev,
+            "message": str(item.get("message", "Issue detected")).strip(),
+            "original": lines[line - 1], "replacement": replacement,
+            "source": "ollama",
+        })
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # Scanning
 # ---------------------------------------------------------------------------
 
-def scan(path: Path, lang: str):
+def scan(path: Path, lang: str, use_llm: bool = False):
     try:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
@@ -169,13 +266,23 @@ def scan(path: Path, lang: str):
                 findings.append({
                     "id": rule_id, "line": lineno, "severity": sev,
                     "message": msg, "original": line, "replacement": replacement,
+                    "source": "rule",
                 })
+
+    if use_llm:
+        seen = {f["line"] for f in findings}
+        for f in llm_scan(path, lang, text):
+            # Rules take priority on the same line; LLM adds anything new.
+            if f["line"] not in seen:
+                findings.append(f)
+                seen.add(f["line"])
     return findings
 
 
 def build_comment(f):
     icon = {"high": "🔴", "medium": "🟠", "low": "🟡"}[f["severity"]]
-    body = f"{icon} **{f['severity'].upper()}** `{f['id']}`\n\n{f['message']}"
+    tag = " · 🧠 ollama" if f.get("source") == "ollama" else ""
+    body = f"{icon} **{f['severity'].upper()}** `{f['id']}`{tag}\n\n{f['message']}"
     if f["replacement"] and f["replacement"] != f["original"]:
         body += f"\n\n```suggestion\n{f['replacement']}\n```"
     return body
@@ -192,6 +299,9 @@ def main(argv):
         return 2
 
     files = get_pr_files(repo, pr)
+    use_llm = ollama_available()
+    engine = f"Ollama `{OLLAMA_MODEL}` + rules" if use_llm else "rules only (Ollama unavailable)"
+    print(f"Review engine: {engine}")
     comments, summary, high_count = [], [], 0
 
     for f in files:
@@ -201,8 +311,9 @@ def main(argv):
         lang = EXT_TO_LANG.get(Path(name).suffix.lower())
         if not lang or not f.get("patch"):
             continue
+        print(f"Reviewing {name} ...")
         commentable = added_or_context_lines(f["patch"])
-        for finding in scan(Path(name), lang):
+        for finding in scan(Path(name), lang, use_llm=use_llm):
             if finding["severity"] == "high":
                 high_count += 1
             summary.append(f"- `{name}:{finding['line']}` **{finding['severity']}** `{finding['id']}` — {finding['message']}")
@@ -219,7 +330,7 @@ def main(argv):
         return 0
 
     review_body = (
-        f"🤖 **AI Review** — {len(summary)} finding(s), {high_count} high severity.\n\n"
+        f"🤖 **AI Review** ({engine}) — {len(summary)} finding(s), {high_count} high severity.\n\n"
         "Inline suggestions are attached where a safe fix is known — click **Apply suggestion** to accept.\n\n"
         "<details><summary>All findings</summary>\n\n" + "\n".join(summary) + "\n\n</details>"
     )
