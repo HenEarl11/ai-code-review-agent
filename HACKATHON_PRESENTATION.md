@@ -32,7 +32,7 @@ Then map the five issue classes to what the agent does today:
 | Potential bugs | LLM pass: logic/reliability issues no rule anticipates | `🧠 ollama` findings on all three PRs |
 | Performance concerns | LLM pass: N+1 loops, repeated queries | `app/reports.py` findings |
 | Coding standard violations | Rules: bare `except`, `console.log`, `:latest` tags, single-AZ… | low/medium findings with one-click fixes |
-| Missing tests | **Not yet** — on the roadmap (PR-level "new module without a test file" check) | Slide 8 |
+| Missing tests | **Deliberately out of scope** — better served by existing coverage tooling (pytest-cov, Jest, Codecov) as a separate CI gate, not by an AI reviewer | Q&A |
 
 **Why we chose PR-time, not the IDE:** the brief's cost is borne at the pull request — that is where developers wait and reviewers spend time. A PR check covers *every* developer and *every* editor with one file per repo, needs no plugin install, and produces a record on the PR that humans and auditors can see. The findings still surface in the IDE for free via the GitHub Pull Requests extension in VS Code. Jira is a natural next step (raise a ticket for unresolved high findings), not a prerequisite for the value.
 
@@ -117,7 +117,6 @@ Compare: commercial AI review is typically **$15–30 per developer per month** 
 ### Slide 8 — Next steps (1:00)
 
 **Near term (weeks)**
-- **Missing-tests check** — the one brief item not yet covered: flag a PR that adds/changes a source module without touching a corresponding test file.
 - **Jira integration** — the brief's suggested MCP: on merge (or on request), raise a ticket per unresolved high-severity finding, linked to the PR line. Uses Jira REST/MCP; ~50 lines.
 - **IDE surface** — findings already appear in VS Code via the GitHub Pull Requests extension; optional: a thin extension that runs the same rules pre-commit.
 - Run advisory-only across more DPF repos for a month; measure which findings developers accept → tune rules, prune false positives.
@@ -158,7 +157,7 @@ Have these tabs open **before** you start; do not rely on live model runs (they 
 
 **The brief suggested an IDE agent and Jira MCP — why didn't you build that?** The brief's *problem* is time lost at the pull request — developers waiting, reviewers repeating themselves. We put the agent where that cost is. One file per repo covers every developer and every editor with nothing to install, and leaves an auditable record on the PR. An IDE plugin only helps the developers who install it and leaves no trace. Findings do appear in VS Code today via the GitHub PR extension; Jira ticketing is a ~50-line next step we've scoped, not a prerequisite for the value.
 
-**You don't detect missing tests.** Correct — it's the one of the brief's five classes we haven't covered yet. It's a PR-level check (source module changed, no matching test file touched), scoped for the next release.
+**The brief mentions missing tests — do you cover that?** No, by design. Test coverage is a measurement problem, not a review problem — pytest-cov, Jest and Codecov already do it precisely and deterministically as a CI gate. An LLM guessing whether "enough" tests exist would add noise, not value. We focused the agent on the four classes where judgement is actually needed.
 
 **Is our code sent to OpenAI / Anthropic / anyone?** No. The model runs on the ephemeral GitHub runner; the only outbound calls are to GitHub's own API (to post comments) and to Ollama's registry (to *download* the model, once).
 
