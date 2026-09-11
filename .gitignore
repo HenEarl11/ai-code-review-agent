@@ -1,26 +1,5 @@
-.env
-.env.local
-*.log
-logs/
-*.db
-*.sqlite
-db/
-node_modules/
-dist/
-build/
 __pycache__/
 *.py[cod]
-.vscode-test/
-out/
 .DS_Store
-Thumbs.db
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-
-
-# Local scan and test repo artifacts
-.scan_tmp/
-test_repos/
