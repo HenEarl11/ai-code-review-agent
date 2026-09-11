@@ -1,0 +1,74 @@
+# Copy this file to  .github/workflows/ai-review.yml  in the target repo
+# (e.g. HenEarl11/terraform). No secrets required — uses the built-in GITHUB_TOKEN.
+#
+# The review is powered by a local Ollama model running on the runner, with a
+# set of fast regex rules as a safety net. Suggestions only — no code is changed.
+
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # Small coder model that runs acceptably on a CPU-only GitHub runner.
+  # Alternatives: qwen2.5-coder:3b (better, slower), mistral (needs self-hosted runner).
+  OLLAMA_MODEL: qwen2.5-coder:1.5b
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Cache Ollama model
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-${{ env.OLLAMA_MODEL }}
+
+      - name: Start Ollama and pull model
+        run: |
+          ollama serve > /tmp/ollama.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:11434/api/tags >/dev/null 2>&1 && break
+            sleep 1
+          done
+          ollama pull "$OLLAMA_MODEL"
+          ollama list
+
+      - name: Fetch AI reviewer script
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/HenEarl11/ai-code-review-agent/main/scripts/pr_review_action.py \
+            -o /tmp/pr_review_action.py
+
+      - name: Run AI review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          AICR_OLLAMA_URL: http://localhost:11434
+          AICR_OLLAMA_MODEL: ${{ env.OLLAMA_MODEL }}
+          AICR_OLLAMA_TIMEOUT: "300"
+          # Set to "true" to fail the check when high-severity issues are found
+          AICR_FAIL_ON_HIGH: "false"
+        run: python3 /tmp/pr_review_action.py ${{ github.event.pull_request.number }}
+
+      - name: Ollama logs (on failure)
+        if: failure()
+        run: cat /tmp/ollama.log || true
