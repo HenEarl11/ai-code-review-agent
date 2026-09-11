@@ -83,6 +83,9 @@ string formatting, `dangerouslySetInnerHTML`, `eval()` on user input, N+1 query 
   by default.
 - **Reviews files, not architecture.** It sees one file at a time; it won't spot a
   problem that spans several modules.
+- **Reviews what changed, not what was already there.** By design it only flags
+  lines the PR touched, so pre-existing problems in the same file go unremarked.
+  A one-off `AICR_SCOPE: full` run covers that when needed.
 - **Three languages today.** Adding one is adding an entry to a dictionary plus a
   few regexes.
 
@@ -123,6 +126,12 @@ we control exactly what it looks for.
 **"Can it block a merge?"**
 Yes — set `AICR_FAIL_ON_HIGH: "true"` and make the check required in branch
 protection. Recommended only after a bedding-in period so developers trust it.
+
+**"If a developer decides to ignore a suggestion, will it keep nagging?"**
+No. It only reviews lines the PR actually changed, and when more commits are
+pushed it only looks at what changed since the last review. An ignored finding
+stays in the earlier review for the record, but isn't re-raised unless that line
+is edited again.
 
 **"How do we roll it out to another repo?"**
 Copy one file (`ai-review.yml`) into `.github/workflows/`. Nothing else. Takes

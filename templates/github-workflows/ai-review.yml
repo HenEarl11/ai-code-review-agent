@@ -25,7 +25,7 @@ env:
   OLLAMA_MODEL: mistral
   # Pinned release of the reviewer script (HenEarl11/ai-code-review-agent).
   # Bump this tag to pick up new rules/behaviour; use "main" to track latest.
-  AICR_VERSION: v1.0.0
+  AICR_VERSION: v1.1.0
 
 jobs:
   review:
@@ -69,6 +69,11 @@ jobs:
           AICR_OLLAMA_URL: http://localhost:11434
           AICR_OLLAMA_MODEL: ${{ env.OLLAMA_MODEL }}
           AICR_OLLAMA_TIMEOUT: "600"
+          # "changed" (default): review only lines added in the PR; on a re-push,
+          # only lines added since the last reviewed commit. "full": whole files.
+          AICR_SCOPE: changed
+          AICR_BEFORE_SHA: ${{ github.event.before }}
+          AICR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           # Set to "true" to fail the check when high-severity issues are found
           AICR_FAIL_ON_HIGH: "false"
         run: python3 /tmp/pr_review_action.py ${{ github.event.pull_request.number }}

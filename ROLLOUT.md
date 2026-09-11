@@ -12,13 +12,26 @@ On every `pull_request` (opened / synchronize / reopened):
 3. Downloads `scripts/pr_review_action.py` from this repo at the pinned tag `AICR_VERSION`.
 4. For each changed `.tf` / `.py` / `.ts` / `.tsx` / `.js` / `.jsx` file:
    - fast regex rules (deterministic, with one-line fixes), then
-   - an Ollama review of the whole file (large files are split into ~6 KB
-     overlapping chunks so nothing is skipped), merged in.
+   - an Ollama review (large files are split into ~6 KB overlapping chunks;
+     only chunks containing changed lines are sent), merged in.
 5. Posts **one** PR review with inline comments; safe fixes appear as
    ` ```suggestion ``` ` blocks with an **Apply suggestion** button.
 
 Suggestions only — nothing is committed or pushed. Uses the built-in `GITHUB_TOKEN`;
 no PATs or secrets required.
+
+### What gets reviewed (scope)
+
+By default only **lines the PR added or changed** are reviewed — pre-existing code
+in the same file is left alone. When more commits are pushed to an open PR, the
+scope narrows further to **lines changed since the last reviewed commit**. So:
+
+- a finding the author chose to ignore is **not** re-raised on the next push
+  unless that line is touched again;
+- re-runs are much faster, because Ollama only sees the chunks that changed.
+
+If the previous commit can't be determined (first run, force-push) it falls back
+to all lines added in the PR. Set `AICR_SCOPE: full` to review whole files.
 
 ## Add it to a repo (Terraform, Python or TypeScript — same steps)
 
@@ -50,7 +63,8 @@ First run downloads the 4.4 GB model (~10 min); later runs use the cache.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `AICR_VERSION` | `v1.0.0` | Git tag of this repo to fetch the reviewer from. Bump to upgrade; set to `main` to always track latest |
+| `AICR_VERSION` | `v1.1.0` | Git tag of this repo to fetch the reviewer from. Bump to upgrade; set to `main` to always track latest |
+| `AICR_SCOPE` | `changed` | `changed` = only lines added in the PR (and, on re-push, only since the last reviewed commit). `full` = whole files every run |
 | `OLLAMA_MODEL` | `mistral` | `qwen2.5-coder:3b` is ~3× faster with shallower, fewer findings |
 | `AICR_FAIL_ON_HIGH` | `"false"` | `"true"` fails the check on any high-severity finding — pair with a required status check to block merges |
 | `AICR_USE_OLLAMA` | `"true"` | `"false"` = regex rules only (seconds, no model download) |

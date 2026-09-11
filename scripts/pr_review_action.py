@@ -18,6 +18,12 @@ Optional env:
     AICR_OLLAMA_TIMEOUT  seconds per file (default 120)
     AICR_USE_OLLAMA      "false" to disable the LLM pass (regex only)
     AICR_FAIL_ON_HIGH    "true" -> exit 1 if any high-severity finding
+    AICR_SCOPE           "changed" (default) -> only lines added in the PR are
+                         reviewed; on a re-push, only lines added since the
+                         previously reviewed commit. "full" -> whole files.
+    AICR_BEFORE_SHA      head SHA of the previous run (github.event.before);
+                         used to narrow the scope on `synchronize` events.
+    AICR_HEAD_SHA        current head SHA (github.event.pull_request.head.sha).
 """
 import json
 import os
@@ -32,6 +38,10 @@ OLLAMA_URL = os.environ.get("AICR_OLLAMA_URL", "http://localhost:11434").rstrip(
 OLLAMA_MODEL = os.environ.get("AICR_OLLAMA_MODEL", "mistral")
 OLLAMA_TIMEOUT = int(os.environ.get("AICR_OLLAMA_TIMEOUT", "120"))
 USE_OLLAMA = os.environ.get("AICR_USE_OLLAMA", "true").lower() != "false"
+SCOPE = os.environ.get("AICR_SCOPE", "changed").lower()
+BEFORE_SHA = os.environ.get("AICR_BEFORE_SHA", "")
+HEAD_SHA = os.environ.get("AICR_HEAD_SHA", "")
+NULL_SHA = "0" * 40
 MAX_LLM_CHARS = 6000   # per-chunk budget sent to Ollama (keeps CPU inference fast)
 LLM_CHUNK_OVERLAP = 8  # lines of context repeated between adjacent chunks
 MAX_LLM_CHUNKS = int(os.environ.get("AICR_MAX_LLM_CHUNKS", "6"))  # cap per file
@@ -147,6 +157,15 @@ def get_pr_files(repo, pr):
 
 def added_or_context_lines(patch):
     """Return set of new-file line numbers that appear in the diff (commentable)."""
+    return _patch_lines(patch, include_context=True)
+
+
+def added_lines(patch):
+    """Return set of new-file line numbers that were ADDED/CHANGED by the diff."""
+    return _patch_lines(patch, include_context=False)
+
+
+def _patch_lines(patch, include_context):
     lines = set()
     new_line = None
     for raw in patch.splitlines():
@@ -162,9 +181,26 @@ def added_or_context_lines(patch):
         elif raw.startswith("-"):
             pass
         else:
-            lines.add(new_line)
+            if include_context:
+                lines.add(new_line)
             new_line += 1
     return lines
+
+
+def incremental_added_lines(repo):
+    """Lines added between the previously reviewed head and the current head,
+    keyed by filename. Returns None if that range is unavailable (first run,
+    force-push, missing env) so the caller can fall back to the whole PR diff."""
+    if not BEFORE_SHA or not HEAD_SHA or BEFORE_SHA == NULL_SHA or BEFORE_SHA == HEAD_SHA:
+        return None
+    try:
+        out = gh_api(f"/repos/{repo}/compare/{BEFORE_SHA}...{HEAD_SHA}?per_page=300")
+        data = json.loads(out)
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return None
+    if data.get("status") not in ("ahead", "diverged"):
+        return None
+    return {f["filename"]: added_lines(f.get("patch", "")) for f in data.get("files", [])}
 
 
 # ---------------------------------------------------------------------------
@@ -241,9 +277,15 @@ def _chunk_lines(lines):
         i = max(j - LLM_CHUNK_OVERLAP, i + 1)
 
 
-def llm_scan(path: Path, lang: str, text: str):
+def llm_scan(path: Path, lang: str, text: str, target_lines=None):
     lines = text.splitlines()
     chunks = list(_chunk_lines(lines))
+    if target_lines is not None:
+        # Only send chunks that contain at least one line we care about.
+        chunks = [(s, c) for s, c in chunks
+                  if any(s <= n < s + len(c.splitlines()) for n in target_lines)]
+        if not chunks:
+            return []
     if len(chunks) > MAX_LLM_CHUNKS:
         print(f"  [ollama] {path}: {len(chunks)} chunks, capping at {MAX_LLM_CHUNKS}", file=sys.stderr)
         chunks = chunks[:MAX_LLM_CHUNKS]
@@ -253,6 +295,8 @@ def llm_scan(path: Path, lang: str, text: str):
     findings, seen = [], set()
     for start, chunk in chunks:
         for f in _llm_scan_chunk(path, lang, chunk, start, lines):
+            if target_lines is not None and f["line"] not in target_lines:
+                continue
             key = (f["line"], f["id"])
             if key not in seen:
                 seen.add(key)
@@ -325,13 +369,17 @@ def _llm_scan_chunk(path: Path, lang: str, chunk: str, start_line: int, lines):
 # Scanning
 # ---------------------------------------------------------------------------
 
-def scan(path: Path, lang: str, use_llm: bool = False):
+def scan(path: Path, lang: str, use_llm: bool = False, target_lines=None):
+    """Scan a file. If target_lines is given, only findings on those lines are
+    returned (and Ollama only sees the chunks that contain them)."""
     try:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return []
     findings = []
     for lineno, line in enumerate(text.splitlines(), 1):
+        if target_lines is not None and lineno not in target_lines:
+            continue
         for rule_id, rx, sev, msg, fixer in DETECTORS[lang]:
             if rx.search(line):
                 replacement = fixer(line) if fixer else None
@@ -343,7 +391,7 @@ def scan(path: Path, lang: str, use_llm: bool = False):
 
     if use_llm:
         seen = {f["line"] for f in findings}
-        for f in llm_scan(path, lang, text):
+        for f in llm_scan(path, lang, text, target_lines):
             # Rules take priority on the same line; LLM adds anything new.
             if f["line"] not in seen:
                 findings.append(f)
@@ -374,6 +422,19 @@ def main(argv):
     use_llm = ollama_available()
     engine = f"Ollama `{OLLAMA_MODEL}` + rules" if use_llm else "rules only (Ollama unavailable)"
     print(f"Review engine: {engine}")
+
+    # Scope: which lines get reviewed.
+    incremental = None
+    if SCOPE == "full":
+        scope_label = "whole files"
+    else:
+        incremental = incremental_added_lines(repo)
+        if incremental is not None:
+            scope_label = f"lines changed since `{BEFORE_SHA[:7]}`"
+        else:
+            scope_label = "lines added in this PR"
+    print(f"Review scope: {scope_label}")
+
     comments, summary, high_count = [], [], 0
 
     for f in files:
@@ -383,9 +444,19 @@ def main(argv):
         lang = EXT_TO_LANG.get(Path(name).suffix.lower())
         if not lang or not f.get("patch"):
             continue
-        print(f"Reviewing {name} ...")
         commentable = added_or_context_lines(f["patch"])
-        for finding in scan(Path(name), lang, use_llm=use_llm):
+        if SCOPE == "full":
+            target = None
+        elif incremental is not None:
+            # Only lines touched by the latest push AND still part of the PR diff.
+            target = incremental.get(name, set()) & added_lines(f["patch"])
+        else:
+            target = added_lines(f["patch"])
+        if target is not None and not target:
+            print(f"Skipping {name} (no changed lines in scope)")
+            continue
+        print(f"Reviewing {name} ({'all' if target is None else len(target)} line(s)) ...")
+        for finding in scan(Path(name), lang, use_llm=use_llm, target_lines=target):
             if finding["severity"] == "high":
                 high_count += 1
             summary.append(f"- `{name}:{finding['line']}` **{finding['severity']}** `{finding['id']}` — {finding['message']}")
@@ -396,13 +467,13 @@ def main(argv):
                 })
 
     if not summary:
-        body = "✅ **AI Review** — no issues detected in changed files."
+        body = f"✅ **AI Review** — no issues detected ({scope_label})."
         gh_api(f"/repos/{repo}/issues/{pr}/comments", "POST", {"body": body})
         print(body)
         return 0
 
     review_body = (
-        f"🤖 **AI Review** ({engine}) — {len(summary)} finding(s), {high_count} high severity.\n\n"
+        f"🤖 **AI Review** ({engine}; scope: {scope_label}) — {len(summary)} finding(s), {high_count} high severity.\n\n"
         "Inline suggestions are attached where a safe fix is known — click **Apply suggestion** to accept.\n\n"
         "<details><summary>All findings</summary>\n\n" + "\n".join(summary) + "\n\n</details>"
     )
